@@ -2,27 +2,23 @@ PROGS = kbd2jackmix
 
 all: $(PROGS)
 
-CC = g++
+CC = gcc
 
-LFLAGS = -ljack -lpthread -lglib-2.0 \
-         $(shell pkg-config --libs gtkmm-3.0)\
-				 -lncurses
+LFLAGS = -lm $(shell pkg-config --libs jack)
 
-CFLAGS = -Wall -c -I /usr/include/glib-2.0 \
-				 -I /usr/lib/x86_64-linux-gnu/glib-2.0/include \
-         -I/usr/include/json-glib-1.0
+CFLAGS = -Wall -c
 
 LIBS =
 
-SRCS = kbd2jackmix.cpp
-OBJS = $(SRCS:.cpp=.o)
+SRCS = kbd2jackmix.c
+OBJS = $(SRCS:.c=.o)
 HDRS =
 
 .SUFFIXES:
 
-.SUFFIXES: .cpp
+.SUFFIXES: .c
 
-%.o : %.cpp
+%.o : %.c
 	$(CC) ${CFLAGS} $<
 
 kbd2jackmix: ${OBJS}
