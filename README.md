@@ -10,5 +10,6 @@ Basically, everything is hardcoded: the path to the keyboard event device (e.g.,
 One bit of setup is necessary, the user account used to run kbd2jackmix must have read access to the keyboard device which is by default owned by root with permissions 700.  I give the file permissions 770 and change its group to something my user account belongs to, namely the 'audio' group, for me, since I must be in that group for jack permissions.  Conveniently, I run these two commands once per re-boot:
 
  % sudo chmod 770 /dev/input/event17
+ 
  % sudo chgrp audio /dev/input/event17
  
