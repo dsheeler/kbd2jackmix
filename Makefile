@@ -1,4 +1,7 @@
+
 PROGS = kbd2jackmix
+
+PREFIX=/usr/local
 
 all: $(PROGS)
 
@@ -23,6 +26,11 @@ HDRS =
 
 kbd2jackmix: ${OBJS}
 	${CC} -o $@ ${OBJS} ${LFLAGS}
+
+install: kbd2jackmix
+	install -m 0755 kbd2jackmix $(PREFIX)/bin
+
+.PHONY: install
 
 clean:
 	rm -f ${OBJS} $(PROGS:%=%.o)

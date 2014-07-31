@@ -35,6 +35,22 @@ struct MidiMessage {
 	unsigned char data[3];
 };
 
+typedef struct {
+  int semi_pressed;
+  int p_pressed;
+  int x_pressed;
+  int c_pressed;
+  int v_pressed;
+  int b_pressed;
+  int ctrl_pressed;
+  int shft_pressed;
+  int up_arrow_pressed;
+  int down_arrow_pressed;
+  int saw_key_up_down;
+  double volume;
+  double pulse_volume;
+} key_handler;
+
 #define RINGBUFFER_SIZE	1024*sizeof(struct MidiMessage)
 
 jack_port_t *midi_port;
@@ -155,19 +171,136 @@ void setup_signal_handler() {
   signal(SIGINT, signal_handler);
 }
 
+int kbd_event(struct input_event inev, void *user) {
+  key_handler *handler;
+  handler = user;
+  //fprintf(stderr, "type, code: %d, %d\n", inev.type, inev.code);
+  if (inev.type == 4) {
+    handler->saw_key_up_down = 1;
+    return 0;
+  }
+
+  if (handler->saw_key_up_down) {
+    if (inev.type == 1) {
+      switch (inev.code) {
+        case KEY_P:
+          handler->p_pressed = !handler->p_pressed;
+          break;
+        case KEY_SEMI_COLON:
+          handler->semi_pressed = !handler->semi_pressed;
+          break;
+        case KEY_C:
+          handler->c_pressed = !handler->c_pressed;
+          break;
+        case KEY_B:
+          handler->b_pressed = !handler->b_pressed;
+          break;
+        case KEY_X:
+          handler->x_pressed = !handler->x_pressed;
+          break;
+        case KEY_V:
+          handler->v_pressed = !handler->v_pressed;
+          break;
+        case KEY_CTRL_CODE:
+          handler->ctrl_pressed = !handler->ctrl_pressed;
+          break;
+        case KEY_SHFT_CODE:
+          handler->shft_pressed = !handler->shft_pressed;
+          break;
+        case KEY_UP_ARROW_CODE:
+          handler->up_arrow_pressed = !handler->up_arrow_pressed;
+          break;
+        case KEY_DOWN_ARROW_CODE:
+          handler->down_arrow_pressed = !handler->down_arrow_pressed;
+          break;
+      }
+    }
+  }
+  handler->saw_key_up_down = 0;
+  switch (inev.code) {
+    case KEY_B:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->b_pressed) {
+        system("xmms2 stop");
+      }
+      break;
+    case KEY_V:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->v_pressed) {
+        system("xmms2 next");
+      }
+      break;
+    case KEY_X:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->x_pressed) {
+        system("xmms2 prev");
+      }
+      break;
+    case KEY_C:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->c_pressed) {
+        system("xmms2 toggle");
+      }
+      break;
+    case KEY_P:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->p_pressed) {
+        handler->pulse_volume += 1;
+        if (handler->pulse_volume > 127) {
+          handler->pulse_volume = 127;
+        }
+        queue_new_message(MIDI_CONTROLLER, 15, handler->pulse_volume);
+      }
+      break;
+    case KEY_SEMI_COLON:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->semi_pressed) {
+        handler->pulse_volume -= 1;
+        if (handler->pulse_volume < 0) {
+          handler->pulse_volume = 0;
+        }
+        queue_new_message(MIDI_CONTROLLER, 15, handler->pulse_volume);
+      }
+      break;
+    case KEY_UP_ARROW_CODE:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->up_arrow_pressed) {
+        handler->volume += 1;
+        if (handler->volume > 127) {
+          handler->volume = 127;
+        }
+        queue_new_message(MIDI_CONTROLLER, 11, handler->volume);
+      }
+      break;
+    case KEY_DOWN_ARROW_CODE:
+      if (handler->shft_pressed && handler->ctrl_pressed && handler->down_arrow_pressed) {
+        handler->volume -= 1;
+        if (handler->volume < 0) {
+          handler->volume = 0;
+        }
+        queue_new_message(MIDI_CONTROLLER, 11, handler->volume);
+      }
+      break;
+  }
+  return 0;
+}
+
 int main (int argc, char *argv[]) {
   int pd;
   int kd;
   int ret;
   int err;
-  const char *keyboard;
+  char *keyboard;
   struct input_event inev;
   struct epoll_event ev;
   struct epoll_event events[NEVENTS];
+  key_handler handler;
+  if (argc != 2) {
+    fprintf(stderr, "usage: %s <keyboard input event path>\n", "kbd2jackmix");
+    return 1;
+  }
+  keyboard = argv[1];
   memset(&ev, 0, sizeof(ev));
-  keyboard = "/dev/input/event17";
   pd = epoll_create1(EPOLL_CLOEXEC);
   kd = open(keyboard, O_RDONLY);
+  if (kd < 0) {
+    err = errno;
+    fprintf(stderr, "Error: %s\n", strerror(err));
+    return 1;
+  }
   ev.events = EPOLLIN;
   ev.data.fd = kd;
   ret = epoll_ctl(pd, EPOLL_CTL_ADD, kd, &ev);
@@ -176,131 +309,17 @@ int main (int argc, char *argv[]) {
     fprintf(stderr, "Error: %s\n", strerror(err));
     return 1;
   }
+  memset(&handler, 0, sizeof(handler));
   setup_jack();
   setup_signal_handler();
-  int semi_pressed = 0;
-  int p_pressed = 0;
-  int x_pressed = 0;
-  int c_pressed = 0;
-  int v_pressed = 0;
-  int b_pressed = 0;
-  int ctrl_pressed = 0;
-  int shft_pressed = 0;
-  int up_arrow_pressed = 0;
-  int down_arrow_pressed = 0;
-  int saw_key_up_down = 0;
-  double volume = 0;
-  double pulse_volume = 0;
   for(;;) {
     ret = epoll_wait(pd, events, NEVENTS, -1);
     if (ret == -1) return 1;
     read(kd, &inev, sizeof(inev));
-    //fprintf(stderr, "type, code: %d, %d\n", inev.type, inev.code);
-    if (inev.type == 4) {
-      saw_key_up_down = 1;
-      continue;
-    }
-
-    if (saw_key_up_down) {
-      if (inev.type == 1) {
-        switch (inev.code) {
-          case KEY_P:
-            p_pressed = !p_pressed;
-            break;
-          case KEY_SEMI_COLON:
-            semi_pressed = !semi_pressed;
-            break;
-          case KEY_C:
-            c_pressed = !c_pressed;
-            break;
-          case KEY_B:
-            b_pressed = !b_pressed;
-            break;
-          case KEY_X:
-            x_pressed = !x_pressed;
-            break;
-          case KEY_V:
-            v_pressed = !v_pressed;
-            break;
-          case KEY_CTRL_CODE:
-            ctrl_pressed = !ctrl_pressed;
-            break;
-          case KEY_SHFT_CODE:
-            shft_pressed = !shft_pressed;
-            break;
-          case KEY_UP_ARROW_CODE:
-            up_arrow_pressed = !up_arrow_pressed;
-            break;
-          case KEY_DOWN_ARROW_CODE:
-            down_arrow_pressed = !down_arrow_pressed;
-            break;
-        }
-      }
-    }
-      saw_key_up_down = 0;
-      switch (inev.code) {
-        case KEY_B:
-          if (shft_pressed && ctrl_pressed && b_pressed) {
-            system("xmms2 stop");
-          }
-          break;
-        case KEY_V:
-          if (shft_pressed && ctrl_pressed && v_pressed) {
-            system("xmms2 next");
-          }
-          break;
-        case KEY_X:
-          if (shft_pressed && ctrl_pressed && x_pressed) {
-            system("xmms2 prev");
-          }
-          break;
-        case KEY_C:
-          if (shft_pressed && ctrl_pressed && c_pressed) {
-            printf("here dude");
-            system("xmms2 toggle");
-          }
-          break;
-        case KEY_P:
-          if (shft_pressed && ctrl_pressed && p_pressed) {
-            pulse_volume += 1;
-            if (pulse_volume > 127) {
-              pulse_volume = 127;
-            }
-            queue_new_message(MIDI_CONTROLLER, 15, pulse_volume);
-          }
-          break;
-        case KEY_SEMI_COLON:
-          if (shft_pressed && ctrl_pressed && semi_pressed) {
-            pulse_volume -= 1;
-            if (pulse_volume < 0) {
-              pulse_volume = 0;
-            }
-            queue_new_message(MIDI_CONTROLLER, 15, pulse_volume);
-          }
-          break;
-         case KEY_UP_ARROW_CODE:
-          if (shft_pressed && ctrl_pressed && up_arrow_pressed) {
-            volume += 1;
-            if (volume > 127) {
-              volume = 127;
-            }
-            queue_new_message(MIDI_CONTROLLER, 11, volume);
-          }
-          break;
-        case KEY_DOWN_ARROW_CODE:
-          if (shft_pressed && ctrl_pressed && down_arrow_pressed) {
-            volume -= 1;
-            if (volume < 0) {
-              volume = 0;
-            }
-            queue_new_message(MIDI_CONTROLLER, 11, volume);
-          }
-          break;
-    }
+    kbd_event(inev, &handler);
   }
   jack_client_close (client);
   close(kd);
   close(pd);
   return 0;
 }
-
