@@ -27,7 +27,7 @@ HDRS =
 kbd2jackmix: ${OBJS}
 	${CC} -o $@ ${OBJS} ${LFLAGS}
 
-install: kbd2jackmix
+install: $(PROGS) 
 	install -m 0755 kbd2jackmix $(PREFIX)/bin
 
 .PHONY: install
