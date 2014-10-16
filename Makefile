@@ -7,9 +7,10 @@ all: $(PROGS)
 
 CC = gcc
 
-LFLAGS = -lm $(shell pkg-config --libs jack)
+LFLAGS = -lm $(shell pkg-config --libs jack)\
+         $(shell pkg-config --libs xmms2-client)
 
-CFLAGS = -Wall -c
+CFLAGS = -Wall -c $(shell pkg-config --cflags xmms2-client)
 
 LIBS =
 
@@ -27,10 +28,14 @@ HDRS =
 kbd2jackmix: ${OBJS}
 	${CC} -o $@ ${OBJS} ${LFLAGS}
 
-install: $(PROGS) 
+install: $(PROGS)
 	install -m 0755 kbd2jackmix $(PREFIX)/bin
+	install -m 0755 kbd2jackmix_launcher.py $(PREFIX)/bin
 
-.PHONY: install
+install-launcher:
+	ln -sf $(PREFIX)/bin/kbd2jackmix_launcher.py $(HOME)/.config/xmms2/startup.d
+
+.PHONY: install install-launcher
 
 clean:
 	rm -f ${OBJS} $(PROGS:%=%.o)

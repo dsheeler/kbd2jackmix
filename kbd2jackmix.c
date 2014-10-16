@@ -12,11 +12,13 @@
 #include <jack/jack.h>
 #include <jack/ringbuffer.h>
 #include <jack/midiport.h>
+#include <xmmsclient/xmmsclient.h>
 #include <fcntl.h>
 #include <errno.h>
 
 #define NEVENTS 1
 
+#define XMMS2_PATH "/usr/local/bin/xmms2"
 #define MIDI_CONTROLLER 0xB0
 #define KEY_SHFT_CODE 42
 #define KEY_CTRL_CODE 29
@@ -49,6 +51,7 @@ typedef struct {
   int saw_key_up_down;
   double volume;
   double pulse_volume;
+  xmmsc_connection_t *connection;
 } key_handler;
 
 #define RINGBUFFER_SIZE	1024*sizeof(struct MidiMessage)
@@ -171,15 +174,144 @@ void setup_signal_handler() {
   signal(SIGINT, signal_handler);
 }
 
+int setup_xmms2(xmmsc_connection_t **connection) {
+  *connection = xmmsc_init ("kbd2jackmix");
+  if (!connection) {
+    fprintf (stderr, "OOM!\n");
+    return -1;
+  }
+  if (!xmmsc_connect (*connection, getenv ("XMMS_PATH"))) {
+    fprintf (stderr, "Connection failed: %s\n",
+     xmmsc_get_last_error (*connection));
+    return -2;
+  }
+  if (*connection == NULL) {
+    fprintf(stderr, "connection is NULL\n");
+  }
+  return 0;
+}
+
+void teardown_xmms2(xmmsc_connection_t *connection) {
+  xmmsc_unref (connection);
+}
+
+int xmms2_stop(xmmsc_connection_t *connection) {
+  xmmsc_result_t *result;
+  xmmsv_t *return_value;
+  const char *err_buf;
+  result = xmmsc_playback_stop(connection);
+  xmmsc_result_wait(result);
+  return_value = xmmsc_result_get_value (result);
+  if (xmmsv_is_error (return_value) &&
+   xmmsv_get_error (return_value, &err_buf)) {
+    fprintf (stderr, "playback status returned error, %s",
+     err_buf);
+    xmmsc_result_unref(result);
+    return -1;
+  }
+  xmmsc_result_unref (result);
+  return 0;
+}
+
+int xmms2_toggle(xmmsc_connection_t *connection) {
+  xmmsc_result_t *result;
+  xmmsv_t *return_value;
+  int32_t status;
+  const char *err_buf;
+  result = xmmsc_playback_status(connection);
+  xmmsc_result_wait(result);
+  return_value = xmmsc_result_get_value (result);
+  if (xmmsv_is_error (return_value) &&
+   xmmsv_get_error (return_value, &err_buf)) {
+    fprintf (stderr, "playback status returned error, %s",
+     err_buf);
+    xmmsc_result_unref(result);
+    return -1;
+  }
+  xmmsv_get_int32 (return_value, &status);
+  xmmsc_result_unref(result);
+  if (status == XMMS_PLAYBACK_STATUS_PLAY)
+    result = xmmsc_playback_pause(connection);
+  else
+    result = xmmsc_playback_start(connection);
+  xmmsc_result_wait(result);
+  return_value = xmmsc_result_get_value (result);
+  if (xmmsv_is_error (return_value) &&
+   xmmsv_get_error (return_value, &err_buf)) {
+    fprintf (stderr, "playback toggle returned error, %s",
+    err_buf);
+    xmmsc_result_unref(result);
+    return -1;
+  }
+  xmmsc_result_unref (result);
+  return 0;
+}
+
+int xmms2_next(xmmsc_connection_t *connection) {
+  xmmsc_result_t *result;
+  xmmsv_t *return_value;
+  const char *err_buf;
+  result = xmmsc_playlist_set_next_rel(connection, 1);
+  xmmsc_result_wait(result);
+  return_value = xmmsc_result_get_value (result);
+  if (xmmsv_is_error (return_value) &&
+   xmmsv_get_error (return_value, &err_buf)) {
+    fprintf (stderr, "playlist_set_next_rel returned error, %s",
+     err_buf);
+    xmmsc_result_unref(result);
+    return -1;
+  }
+  xmmsc_result_unref (result);
+  result = xmmsc_playback_tickle(connection);
+  xmmsc_result_wait(result);
+  return_value = xmmsc_result_get_value (result);
+  if (xmmsv_is_error (return_value) &&
+   xmmsv_get_error (return_value, &err_buf)) {
+    fprintf (stderr, "playback_tickle returned error, %s",
+     err_buf);
+    xmmsc_result_unref(result);
+    return -1;
+  }
+  xmmsc_result_unref (result);
+  return 0;
+}
+
+int xmms2_prev(xmmsc_connection_t *connection) {
+  xmmsc_result_t *result;
+  xmmsv_t *return_value;
+  const char *err_buf;
+  result = xmmsc_playlist_set_next_rel(connection, -1);
+  xmmsc_result_wait(result);
+  return_value = xmmsc_result_get_value (result);
+  if (xmmsv_is_error (return_value) &&
+   xmmsv_get_error (return_value, &err_buf)) {
+    fprintf (stderr, "playlist_set_next_rel returned error, %s",
+     err_buf);
+    xmmsc_result_unref(result);
+    return -1;
+  }
+  xmmsc_result_unref (result);
+  result = xmmsc_playback_tickle(connection);
+  xmmsc_result_wait(result);
+  return_value = xmmsc_result_get_value (result);
+  if (xmmsv_is_error (return_value) &&
+   xmmsv_get_error (return_value, &err_buf)) {
+    fprintf (stderr, "playback_tickle returned error, %s",
+     err_buf);
+    xmmsc_result_unref(result);
+    return -1;
+  }
+  xmmsc_result_unref (result);
+  return 0;
+}
+
 int kbd_event(struct input_event inev, void *user) {
   key_handler *handler;
   handler = user;
-  //fprintf(stderr, "type, code: %d, %d\n", inev.type, inev.code);
   if (inev.type == 4) {
     handler->saw_key_up_down = 1;
     return 0;
   }
-
   if (handler->saw_key_up_down) {
     if (inev.type == 1) {
       switch (inev.code) {
@@ -220,22 +352,22 @@ int kbd_event(struct input_event inev, void *user) {
   switch (inev.code) {
     case KEY_B:
       if (handler->shft_pressed && handler->ctrl_pressed && handler->b_pressed) {
-        system("xmms2 stop");
+        xmms2_stop(handler->connection);
       }
       break;
     case KEY_V:
       if (handler->shft_pressed && handler->ctrl_pressed && handler->v_pressed) {
-        system("xmms2 next");
+        xmms2_next(handler->connection);
       }
       break;
     case KEY_X:
       if (handler->shft_pressed && handler->ctrl_pressed && handler->x_pressed) {
-        system("xmms2 prev");
+        xmms2_prev(handler->connection);
       }
       break;
     case KEY_C:
       if (handler->shft_pressed && handler->ctrl_pressed && handler->c_pressed) {
-        system("xmms2 toggle");
+        xmms2_toggle(handler->connection);
       }
       break;
     case KEY_P:
@@ -311,6 +443,10 @@ int main (int argc, char *argv[]) {
   }
   memset(&handler, 0, sizeof(handler));
   setup_jack();
+  setup_xmms2(&handler.connection);
+  if (handler.connection == NULL) {
+    fprintf(stderr, "setup_xmms2 leaves handler.connection NULL\n");
+  }
   setup_signal_handler();
   for(;;) {
     ret = epoll_wait(pd, events, NEVENTS, -1);
@@ -318,6 +454,7 @@ int main (int argc, char *argv[]) {
     read(kd, &inev, sizeof(inev));
     kbd_event(inev, &handler);
   }
+  teardown_xmms2(handler.connection);
   jack_client_close (client);
   close(kd);
   close(pd);
