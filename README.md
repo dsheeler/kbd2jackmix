@@ -7,7 +7,7 @@ Build the kbd2jackmix executable by typing 'make'.  'sudo make install' will put
 
 Usage is
 
-% kbd2jackmix </dev/input eventfile>
+% kbd2jackmix /dev/input/eventfile
 
 Basically, everything is hardcoded except the path to the keyboard event device (e.g., /dev/input/event17), which you must give as a command line argument.  Other stuff that is hardcoded: the key-bindings and the midi channels.  It needs a configuration interface for these things. In its initial, hardcoded configuration, pressing ctl-shift-up_arrow increases a stored volume value (initialized to zero) and sends the volume via channel 11 over the jack midi port, and ctl-shift-down_arrow decreases the stored volume and sends it.
 
